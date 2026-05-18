@@ -1,8 +1,21 @@
 [project]
 name = "cnki-search-mcp"
-version = "0.1.0"
-description = "MCP server for academic literature search on CNKI via browser automation"
+version = "0.1.1"
+description = "CNKI academic search MCP server — browser automation for China National Knowledge Infrastructure"
+readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    {name = "CN-MRZZJ"},
+]
+keywords = ["cnki", "academic-search", "mcp", "literature", "playwright", "知网"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
 dependencies = [
     "mcp>=1.0.0",
     "playwright>=1.40.0",
@@ -10,6 +23,10 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "lxml>=5.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/CN-MRZZJ/cnki-search-mcp"
+Repository = "https://github.com/CN-MRZZJ/cnki-search-mcp"
 
 [build-system]
 requires = ["setuptools>=75.8.0", "wheel"]
