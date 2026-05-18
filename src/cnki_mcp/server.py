@@ -84,6 +84,14 @@ async def list_tools() -> list[Tool]:
                         "description": "最大返回结果数，默认20",
                         "default": 20,
                     },
+                    "field": {
+                        "type": "string",
+                        "description": (
+                            "一框式检索的搜索字段。可选：SU(主题,默认)、TI(篇名)、"
+                            "KY(关键词)、AB(摘要)、FT(全文)、AU(作者)、"
+                            "AF(作者单位)、FU(基金)、LY(文献来源)、TKA(篇关摘)"
+                        ),
+                    },
                 },
                 "required": ["query"],
             },
@@ -173,6 +181,7 @@ async def handle_cnki_search(args: dict) -> dict:
     year_to = args.get("year_to")
     fund = args.get("fund", "")
     max_results = args.get("max_results", 20)
+    field = args.get("field", "SU")
 
     # Parse natural language hints from the query string
     parsed = parse_natural_query(query)
@@ -204,8 +213,8 @@ async def handle_cnki_search(args: dict) -> dict:
         html = await browser.search_professional(expression, max_results)
     else:
         # Use one-box search for simple keyword queries
-        html = await browser.search_simple(final_query, max_results)
-        expression = f"一框式检索: {final_query}"
+        html = await browser.search_simple(final_query, field, max_results)
+        expression = f"一框式检索 [{field}]: {final_query}"
 
     results = parse_search_results(html)
 

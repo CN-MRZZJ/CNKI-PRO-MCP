@@ -90,15 +90,21 @@ class CNKIBrowser:
         if self._playwright:
             await self._playwright.stop()
 
-    async def search_simple(self, query: str, max_results: int = 20) -> str:
+    async def search_simple(self, query: str, field: str = "SU",
+                            max_results: int = 20) -> str:
         """Execute a one-box search (一框式检索) with pagination.
 
-        Navigates to the simple search page, inputs the query, and collects
-        results across pages up to max_results.
+        Args:
+            query: Search keyword.
+            field: Field code to search in (SU/TI/KY/AB/AU/FT etc.), default SU (主题).
+            max_results: Max results to return.
         """
         page = await self._context.new_page()
         try:
             await self._navigate_and_pass_captcha(page, CNKI_SIMPLE_SEARCH_URL)
+
+            # Select the search field from the dropdown
+            await self._select_search_field(page, field)
 
             # Find the search input and fill
             await self._fill_simple_search(page, query)
@@ -257,6 +263,29 @@ class CNKIBrowser:
             except Exception:
                 continue
         self._notify(f"警告：未找到'{tab_name}'标签，尝试继续...")
+
+    async def _select_search_field(self, page: Page, field_code: str):
+        """Select the search field from the dropdown next to the search box.
+
+        Visible trigger: div.sort-default > span (shows current field name)
+        Hidden dropdown: div.sort-list > ul > li[data-val] (field options)
+        """
+        if field_code == "SU":
+            return  # Default, no need to change
+
+        # Open the dropdown by clicking the visible trigger
+        trigger = page.locator(".sort-default").first
+        if await trigger.is_visible(timeout=2000):
+            await trigger.click()
+            await page.wait_for_timeout(400)
+
+        # Click the target option in the dropdown
+        target = page.locator(f".sort-list li[data-val='{field_code}']").first
+        try:
+            await target.click(force=True, timeout=3000)
+            await page.wait_for_timeout(300)
+        except Exception:
+            self._notify(f"警告：未找到字段 '{field_code}'，使用默认字段")
 
     async def _fill_simple_search(self, page: Page, query: str):
         """Find the one-box search input and fill the query."""
