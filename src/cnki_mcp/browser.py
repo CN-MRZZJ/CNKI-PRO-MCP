@@ -18,10 +18,13 @@ from typing import Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
 
-CNKI_ADV_SEARCH_URL = "https://kns.cnki.net/kns8s/AdvSearch"
+# 一框式检索
+CNKI_SIMPLE_SEARCH_URL = "https://kns.cnki.net/kns8s/search"
+# 专业检索（保留给 cnki_professional_search 使用）
 CNKI_PRO_SEARCH_URL = "https://kns.cnki.net/kns8s/AdvSearch?type=expert"
+
 COOKIE_FILE = Path(__file__).parent.parent.parent / ".cnki_cookies.json"
-CAPTCHA_TIMEOUT = 120_000  # 2 minutes for user to solve CAPTCHA
+CAPTCHA_TIMEOUT = 120_000
 
 
 @dataclass
@@ -87,12 +90,51 @@ class CNKIBrowser:
         if self._playwright:
             await self._playwright.stop()
 
-    async def search_professional(self, expression: str, max_results: int = 20) -> str:
-        """Execute a professional search with pagination.
+    async def search_simple(self, query: str, max_results: int = 20) -> str:
+        """Execute a one-box search (一框式检索) with pagination.
 
-        Fetches enough pages to collect up to max_results. Returns combined
-        HTML containing result rows from all fetched pages.
+        Navigates to the simple search page, inputs the query, and collects
+        results across pages up to max_results.
         """
+        page = await self._context.new_page()
+        try:
+            await self._navigate_and_pass_captcha(page, CNKI_SIMPLE_SEARCH_URL)
+
+            # Find the search input and fill
+            await self._fill_simple_search(page, query)
+
+            # Click search
+            await self._click_search_button(page)
+
+            # Wait for results
+            await self._wait_for_results(page)
+
+            html_parts = [await page.content()]
+            pages_fetched = 1
+
+            while pages_fetched * 20 < max_results:
+                next_btn = page.locator("a:has-text('下一页')").first
+                if not await next_btn.is_visible(timeout=2000):
+                    break
+                parent_li = next_btn.locator("..")
+                parent_class = await parent_li.get_attribute("class") or ""
+                if "disabled" in parent_class:
+                    break
+                await next_btn.click()
+                try:
+                    await page.wait_for_timeout(self.config.wait_after_search)
+                    await self._wait_for_results(page)
+                except Exception:
+                    break
+                html_parts.append(await page.content())
+                pages_fetched += 1
+
+            return self._merge_result_html(html_parts)
+        finally:
+            await page.close()
+
+    async def search_professional(self, expression: str, max_results: int = 20) -> str:
+        """Execute a professional search (专业检索) with pagination."""
         page = await self._context.new_page()
         try:
             await self._navigate_and_pass_captcha(page, CNKI_PRO_SEARCH_URL)
@@ -215,6 +257,42 @@ class CNKIBrowser:
             except Exception:
                 continue
         self._notify(f"警告：未找到'{tab_name}'标签，尝试继续...")
+
+    async def _fill_simple_search(self, page: Page, query: str):
+        """Find the one-box search input and fill the query."""
+        selectors = [
+            "textarea#txt_SearchText",
+            "input#txt_SearchText",
+            "textarea.search-input",
+            "input.search-input",
+            "input[name='txt_SearchText']",
+        ]
+        for sel in selectors:
+            try:
+                el = page.locator(sel).first
+                if await el.is_visible(timeout=3000):
+                    await el.click()
+                    await el.fill("")
+                    await el.type(query, delay=30)
+                    return
+            except Exception:
+                continue
+
+        # Fallback: any visible textarea or text input
+        for tag in ["textarea:visible", "input[type='text']:visible"]:
+            els = page.locator(tag)
+            count = await els.count()
+            for i in range(count):
+                el = els.nth(i)
+                try:
+                    if await el.is_visible():
+                        await el.click()
+                        await el.fill("")
+                        await el.fill(query)
+                        return
+                except Exception:
+                    continue
+        raise RuntimeError("找不到一框式检索输入框")
 
     async def _fill_expression(self, page: Page, expression: str):
         """Find the professional search textarea. It has class 'textarea-major'
