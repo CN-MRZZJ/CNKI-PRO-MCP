@@ -58,7 +58,7 @@ pip install cnki-search-mcp
 ## 本地开发
 
 ```bash
-git clone https://github.com/CN-MRZZJ/CNKI-PRO-MCP.git
-cd CNKI-PRO-MCP
+git clone https://github.com/CN-MRZZJ/cnki-search-mcp.git
+cd cnki-search-mcp
 pip install -e .
 ```
