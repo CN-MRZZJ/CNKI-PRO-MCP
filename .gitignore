@@ -1,0 +1,25 @@
+# CNKI cookies (contains session data, should not be shared)
+.cnki_cookies.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Virtual env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+*.html
+!检索说明.html
