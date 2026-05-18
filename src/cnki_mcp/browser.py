@@ -91,29 +91,57 @@ class CNKIBrowser:
             await self._playwright.stop()
 
     async def search_simple(self, query: str, field: str = "SU",
-                            max_results: int = 20) -> str:
+                            max_results: int = 20) -> tuple[str, list]:
         """Execute a one-box search (一框式检索) with pagination.
 
-        Args:
-            query: Search keyword.
-            field: Field code to search in (SU/TI/KY/AB/AU/FT etc.), default SU (主题).
-            max_results: Max results to return.
+        Returns (merged_html, sidebar_groups).
         """
+        # Collect sidebar API responses at context level (before page creation)
+        sidebar_html_parts = []
+
+        async def on_response(response):
+            if "group/result" in response.url:
+                try:
+                    body = await response.text()
+                    sidebar_html_parts.append(body)
+                except Exception:
+                    pass
+
+        self._context.on("response", on_response)
+
         page = await self._context.new_page()
         try:
             await self._navigate_and_pass_captcha(page, CNKI_SIMPLE_SEARCH_URL)
-
-            # Select the search field from the dropdown
             await self._select_search_field(page, field)
-
-            # Find the search input and fill
             await self._fill_simple_search(page, query)
-
-            # Click search
             await self._click_search_button(page)
-
-            # Wait for results
             await self._wait_for_results(page)
+
+            # Click each collapsed sidebar section to trigger lazy loading
+            try:
+                dt_els = page.locator("dt.tit")
+                count = await dt_els.count()
+                for i in range(count):
+                    try:
+                        dt = dt_els.nth(i)
+                        if await dt.is_visible(timeout=1000):
+                            await dt.click()
+                            await page.wait_for_timeout(800)
+                    except Exception:
+                        pass
+                await page.wait_for_timeout(3000)
+            except Exception:
+                pass
+
+            self._context.remove_listener("response", on_response)
+
+            # Parse all captured sidebar data
+            sidebar = []
+            for html in sidebar_html_parts:
+                parsed = self._parse_group_html(html)
+                for g in parsed:
+                    if not any(e["name"] == g["name"] for e in sidebar):
+                        sidebar.append(g)
 
             html_parts = [await page.content()]
             pages_fetched = 1
@@ -135,18 +163,23 @@ class CNKIBrowser:
                 html_parts.append(await page.content())
                 pages_fetched += 1
 
-            return self._merge_result_html(html_parts)
+            return self._merge_result_html(html_parts), sidebar
         finally:
             await page.close()
 
-    async def search_professional(self, expression: str, max_results: int = 20) -> str:
-        """Execute a professional search (专业检索) with pagination."""
+    async def search_professional(self, expression: str, max_results: int = 20) -> tuple[str, list]:
+        """Execute a professional search (专业检索) with pagination.
+
+        Returns (merged_html, sidebar_groups).
+        """
         page = await self._context.new_page()
         try:
             await self._navigate_and_pass_captcha(page, CNKI_PRO_SEARCH_URL)
             await self._fill_expression(page, expression)
             await self._click_search_button(page)
             await self._wait_for_results(page)
+
+            sidebar = await self._extract_sidebar(page)
 
             html_parts = [await page.content()]
             pages_fetched = 1
@@ -174,7 +207,7 @@ class CNKIBrowser:
                 pages_fetched += 1
 
             # Combine result rows from all pages into a single HTML document
-            return self._merge_result_html(html_parts)
+            return self._merge_result_html(html_parts), sidebar
         finally:
             await page.close()
 
@@ -384,6 +417,83 @@ class CNKIBrowser:
                 continue
 
         await page.wait_for_timeout(5_000)
+
+    def _parse_group_html(self, html: str) -> list[dict]:
+        """Parse CNKI group/result API HTML response into sidebar groups."""
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(html, "lxml")
+        groups = []
+        for dl in soup.select("dl"):
+            dt = dl.select_one("dt.tit")
+            if not dt:
+                continue
+            name = dt.get_text(strip=True)
+            if not name or len(name) > 15:
+                continue
+            items = []
+            for li in dl.select("dd li"):
+                txt = li.get_text(strip=True)
+                if not txt or len(txt) < 2 or len(txt) > 100:
+                    continue
+                import re
+                m = re.search(r"\(([\d.]+[万千]?)\)", txt)
+                count = m.group(1) if m else ""
+                clean_name = re.sub(r"\([\d.]+[万千]?\)", "", txt).strip()
+                bar = ""
+                bar_el = li.select_one('[style*="width"]')
+                if bar_el:
+                    wm = re.search(r"width:\s*([\d.]+)%", bar_el.get("style", ""))
+                    if wm:
+                        bar = wm.group(1) + "%"
+                if clean_name:
+                    items.append({"name": clean_name, "count": count, "bar": bar})
+            if items:
+                groups.append({"name": name, "items": items})
+        return groups
+
+    async def _extract_sidebar(self, page: Page) -> list[dict]:
+        """Extract sidebar groups from group/result API responses.
+
+        Intercepts the CNKI group/result API call and parses the HTML response.
+        Also triggers loading of additional groups by clicking section headers.
+        """
+        groups = []
+        api_html_parts = []
+
+        async def capture_group_response(response):
+            if "group/result" in response.url:
+                try:
+                    body = await response.text()
+                    api_html_parts.append(body)
+                except Exception:
+                    pass
+
+        page.on("response", capture_group_response)
+
+        # Wait for initial sidebar load
+        await page.wait_for_timeout(2000)
+
+        # Try clicking collapsed sidebar sections to trigger their API calls
+        try:
+            await page.evaluate("""() => {
+                document.querySelectorAll('dt.tit').forEach(dt => {
+                    dt.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+                });
+            }""")
+            await page.wait_for_timeout(2000)
+        except Exception:
+            pass
+
+        page.remove_listener("response", capture_group_response)
+
+        # Parse all captured API responses
+        for html in api_html_parts:
+            parsed = self._parse_group_html(html)
+            for g in parsed:
+                if not any(existing["name"] == g["name"] for existing in groups):
+                    groups.append(g)
+
+        return groups
 
     def _notify(self, msg: str):
         """Print a notification that the user can see even in MCP context."""

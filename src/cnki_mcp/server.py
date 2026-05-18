@@ -210,10 +210,10 @@ async def handle_cnki_search(args: dict) -> dict:
             year_to=final_year_to,
             fund=final_fund,
         )
-        html = await browser.search_professional(expression, max_results)
+        html, sidebar = await browser.search_professional(expression, max_results)
     else:
         # Use one-box search for simple keyword queries
-        html = await browser.search_simple(final_query, field, max_results)
+        html, sidebar = await browser.search_simple(final_query, field, max_results)
         expression = f"一框式检索 [{field}]: {final_query}"
 
     results = parse_search_results(html)
@@ -226,6 +226,7 @@ async def handle_cnki_search(args: dict) -> dict:
         "expression": expression,
         "total_results": len(results),
         "results": results,
+        "sidebar": sidebar,
     }
 
 
@@ -248,6 +249,7 @@ async def handle_professional_search(args: dict) -> dict:
         "expression": expression,
         "total_results": len(results),
         "results": results,
+        "sidebar": sidebar,
     }
 
 
