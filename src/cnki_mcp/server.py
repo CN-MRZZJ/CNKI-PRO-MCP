@@ -15,13 +15,14 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
+from . import __version__
 from .browser import CNKIBrowser, SearchConfig
 from .parser import parse_search_results, parse_article_detail
 from .query_builder import build_expression, parse_natural_query
 
 logger = logging.getLogger(__name__)
 
-app = Server("cnki-mcp")
+app = Server("cnki-search-mcp", version=__version__)
 
 _browser: Optional[CNKIBrowser] = None
 
