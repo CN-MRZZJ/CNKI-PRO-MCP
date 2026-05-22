@@ -239,7 +239,7 @@ async def handle_professional_search(args: dict) -> dict:
         return {"error": "expression is required", "results": []}
 
     browser = await get_browser()
-    html = await browser.search_professional(expression, max_results)
+    html, sidebar = await browser.search_professional(expression, max_results)
     results = parse_search_results(html)
 
     if len(results) > max_results:
